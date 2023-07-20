@@ -1,55 +1,68 @@
 ggplot.as.list <- function(o, ...) {
 
-    if (!(requireNamespace("ggplot2", quietly = TRUE))) {
-        stop("The ggplot2 package is required to use this functionality.")
-    } else if (!("ggplot") %in% class(o)) {
-        stop("Not a ggplot object")
+  if (!(requireNamespace("ggplot2", quietly = TRUE))) {
+    stop("The ggplot2 package is required to use this functionality.")
+  } else if (!("ggplot") %in% class(o)) {
+    stop("Not a ggplot object")
+  }
+
+  target <- "canvas"
+
+  cx <- list(
+    renderTo = target,
+    data     = data_to_matrix(o),
+    aes      = gg_mapping(o),
+    scales   = gg_scales(o),
+    coords   = gg_coordinates(o),
+    theme    = gg_theme(o),
+    labels   = gg_labels(o),
+    facet    = gg_facet(o),
+    order    = gg_order(o),
+    layers   = as.vector(NULL),
+    geoms    = as.vector(NULL),
+    isGGPlot = TRUE,
+    config   = list(...),
+    isR      = TRUE)
+
+  layers <- sapply(o$layers, function(x) class(x$geom)[1])
+
+  proto_geom <- sapply( sapply( o$layers, "[[", "geom"), function(x) class(x)[[1]][1] )
+  proto_stat <- sapply( sapply( o$layers, "[[", "stat"), function(x) class(x)[[1]][1] )
+
+  for (i in 1:length(layers)) {
+    l <- layers[i]
+    p <- gg_proc_layer(o, i)
+    if ((l == "GeomTile") && (proto_stat[i] == "StatBin2d")) {
+      l = "GeomBin2d"
+    } else if ((l == "GeomPoint") && !is.null(p$position) && (p$position == "jitter")) {
+      l = "GeomJitter"
+    } else if ((l == "GeomBar") && (proto_stat[i] == "StatBin")) {
+      l = "GeomHistogram"
+    } else if ((l == "GeomPath") && (proto_stat[i] == "StatQqLine")) {
+      l = "GeomQqLine"
+    } else if ((l == "GeomPoint") && (proto_stat[i] == "StatQq")) {
+      l = "GeomQq"
+    } else if (l == "GeomErrorbar" || l == "GeomErrorbarh" || l == "GeomRibbon" || l == "GeomArea") {
+      if (class(ggplot2::ggplot_build(o)$data[[i]]$xmin)[1] == 'numeric') {
+        p$xmin = ggplot2::ggplot_build(o)$data[[i]]$xmin
+      }
+      if (class(ggplot2::ggplot_build(o)$data[[i]]$xmax)[1] == 'numeric') {
+        p$xmax = ggplot2::ggplot_build(o)$data[[i]]$xmax
+      }
+      if (class(ggplot2::ggplot_build(o)$data[[i]]$ymin)[1] == 'numeric') {
+        p$ymin = ggplot2::ggplot_build(o)$data[[i]]$ymin
+      }
+      if (class(ggplot2::ggplot_build(o)$data[[i]]$ymax)[1] == 'numeric') {
+        p$ymax = ggplot2::ggplot_build(o)$data[[i]]$ymax
+      }
     }
+    q <- list()
+    q[[l]]    <- p
+    cx$geoms  <- append(cx$geoms, l)
+    cx$layers <- append(cx$layers, q)
+  }
 
-    target <- "canvas"
-
-    cx <- list(
-        renderTo = target,
-        data     = data_to_matrix(o$data),
-        aes      = gg_mapping(o),
-        scales   = gg_scales(o),
-        coords   = gg_coordinates(o),
-        theme    = gg_theme(o),
-        labels   = gg_labels(o),
-        facet    = gg_facet(o),
-        order    = gg_order(o),
-        layers   = as.vector(NULL),
-        geoms    = as.vector(NULL),
-        isGGPlot = TRUE,
-        config   = list(...),
-        isR      = TRUE)
-
-    layers <- sapply(o$layers, function(x) class(x$geom)[1])
-
-    proto_geom <- sapply( sapply( o$layers, "[[", "geom"), function(x) class(x)[[1]][1] )
-    proto_stat <- sapply( sapply( o$layers, "[[", "stat"), function(x) class(x)[[1]][1] )
-
-    for (i in 1:length(layers)) {
-        l <- layers[i]
-        p <- gg_proc_layer(o$layers[[i]])
-        if ((l == "GeomTile") && (proto_stat[i] == "StatBin2d")) {
-            l = "GeomBin2d"
-        } else if ((l == "GeomPoint") && !is.null(p$position) && (p$position == "jitter")) {
-            l = "GeomJitter"
-        } else if ((l == "GeomBar") && (proto_stat[i] == "StatBin")) {
-            l = "GeomHistogram"
-        } else if ((l == "GeomPath") && (proto_stat[i] == "StatQqLine")) {
-            l = "GeomQqLine";
-        } else if ((l == "GeomPoint") && (proto_stat[i] == "StatQq")) {
-            l = "GeomQq";
-        }
-        q <- list()
-        q[[l]]    <- p
-        cx$geoms  <- append(cx$geoms, l)
-        cx$layers <- append(cx$layers, q)
-    }
-
-    jsonlite::toJSON(cx, pretty = TRUE, auto_unbox = TRUE)
+  jsonlite::toJSON(cx, pretty = TRUE, auto_unbox = TRUE)
 }
 
 # -- internal helper functions -- #
@@ -246,7 +259,7 @@ gg_mapping <- function(o) {
     o = ggplot2::last_plot()
   }
   r = list();
-  m = c('x', 'y', 'z', 'weight', 'group', 'colour', 'fill', 'size', 'alpha', 'linetype', 'label', 'vjust', 'sample')
+  m = c('x', 'y', 'z', 'xmin', 'xmax', 'ymin', 'ymax', 'zmin', 'zmax', 'weight', 'group', 'colour', 'fill', 'size', 'alpha', 'linetype', 'label', 'vjust', 'sample')
   s = as.vector(NULL)
   e = TRUE
   for (i in m) {
@@ -288,7 +301,8 @@ gg_mapping <- function(o) {
   }
 }
 
-gg_proc_layer <- function (l) {
+gg_proc_layer <- function (o, idx) {
+  l = o$layers[[idx]]
   r = list()
   q = as.vector(NULL)
   if (!is.null(l$mapping)) {
@@ -372,6 +386,9 @@ gg_proc_layer <- function (l) {
       }
     }
   }
+  if (!is.na(l$show.legend) && l$show.legend == FALSE) {
+    r$showLegend = FALSE;
+  }
   if (length(q) > 0) {
     r$stringVariableFactors = unique(q)
     r$stringSampleFactors = unique(q)
@@ -383,16 +400,61 @@ gg_proc_layer <- function (l) {
   if (pos != 'normal') {
     r$position = pos
   }
+  if (class(l$stat)[1] == 'StatSina') {
+    r$sina = TRUE
+  } else if (class(l$stat)[1] == 'StatStreamDensity') {
+    r$stream = TRUE
+  }
   if (is.data.frame(l$data)) {
-    r$data = data_to_matrix(l$data)
+    dl = ggplot2::ggplot_build(o)$data[[idx]]
+    r$data = list()
+    if ('x' %in% colnames(dl) && 'y' %in% colnames(dl)) {
+      r$data$x = as.numeric(dl[['x']])
+      r$data$y = as.numeric(dl[['y']])
+    } else {
+      dl = l$data
+      nd = data.frame(lapply(dl, as.character), stringsAsFactors = FALSE)
+      nd = tibble::add_column(nd, Id = row.names(dl), .before = 1)
+      nd = tibble::add_row(nd, .before = 1)
+      nd[1,] = colnames(nd)
+      r$data = as.matrix(nd)
+    }
   }
   r
 }
 
-data_to_matrix <- function(d) {
-  d = data.frame(lapply(d, as.character), stringsAsFactors = FALSE)
-  nd = tibble::add_column(d, Id = row.names(d), .before = 1)
+data_to_matrix <- function(o) {
+  layers <- sapply(o$layers, function(x) class(x$geom)[1])
+  m = c('x', 'y', 'z')
+  d = o$data
+  nd = data.frame(lapply(d, as.character), stringsAsFactors = FALSE)
+  for (i in m) {
+    if (!is.null(o$mapping[[i]])) {
+      q = rlang::as_label(o$mapping[[i]])
+      if (q %in% colnames(o$data) || q == "1") {
+        ## Nothing to do
+      } else {
+        u = as.numeric(ggplot2::ggplot_build(o)$data[[1]][[i]])
+        nd[q] = u
+      }
+    }
+  }
+  for (i in 1:length(layers)) {
+    l <- layers[i]
+    for (j in m) {
+      if (!is.null(o$layers[[i]]$mapping[[j]])) {
+        q = rlang::as_label(o$layers[[i]]$mapping[[j]])
+        if (q %in% colnames(o$data)) {
+          ## Nothing to do
+        } else {
+          u = as.numeric(ggplot2::ggplot_build(o)$data[[i]][[j]])
+          nd[q] = u
+        }
+      }
+    }
+  }
+  nd = tibble::add_column(nd, Id = row.names(d), .before = 1)
   nd = tibble::add_row(nd, .before = 1)
-  nd[1,] = c("Id", colnames(d))
+  nd[1,] = colnames(nd)
   as.matrix(nd)
 }
