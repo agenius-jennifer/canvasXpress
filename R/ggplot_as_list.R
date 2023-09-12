@@ -1,3 +1,5 @@
+#' Converts a ggplot object to a list that can be used by CanvasXpress.
+#' @export
 ggplot.as.list <- function(o, ...) {
 
   if (!(requireNamespace("ggplot2", quietly = TRUE))) {
@@ -15,7 +17,6 @@ ggplot.as.list <- function(o, ...) {
     data     = data_to_matrix(o),
     aes      = gg_mapping(o),
     scales   = gg_scales(o),
-    colors   = list(fill = unique(bld$data[[1]]$fill), colors = unique(bld$data[[1]]$colour)),
     coords   = gg_coordinates(o),
     theme    = gg_theme(o),
     labels   = gg_labels(o),
@@ -187,7 +188,7 @@ gg_scales <- function (o) {
   if (n > 0) {
     for (i in 1:n) {
       s = o$scales$scales[[i]]
-      if (s$aesthetics[1] == "colour") {
+      if (s$aesthetics[1] == "colour" || s$aesthetics[1] == "fill") {
         if (stringr::str_detect(s$scale_name, "gradient")) {
           if (s$scale_name == "gradient2") {
             s$train(c(-1,1))
